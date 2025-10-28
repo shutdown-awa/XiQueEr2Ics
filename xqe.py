@@ -63,8 +63,9 @@ class XqeLogin:
             raise Exception(f"网络请求错误：{e}")
 
         # 从Cookie获取JSESSIONID
-        if 'JSESSIONID' in self.session.cookies:
-            jsessionid = self.session.cookies['JSESSIONID']
+        jsessionid = self.session.cookies.get('JSESSIONID')
+        if not jsessionid:
+            raise ValueError("无法获取JSESSIONID")
         
         # 获取Session ID
         content = response.text
@@ -74,7 +75,11 @@ class XqeLogin:
         """获取deskey&nowtime"""
         # Get encryption parameters
         enc_url = f"{self.base_url}/custom/js/SetKingoEncypt.jsp"
-        enc_response = self.session.get(enc_url)
+        try:
+            enc_response = self.session.get(enc_url)
+            enc_response.raise_for_status()
+        except Exception as e:
+            raise Exception(f"获取加密参数失败：{e}")
         
         deskey_match = re.search(r'var _deskey = \'([^\']+)\'', enc_response.text)
         nowtime_match = re.search(r'var _nowtime = \'([^\']+)\'', enc_response.text)
@@ -127,12 +132,18 @@ class XqeLogin:
             raise Exception(f"网络请求错误： {e}")
 
         # 判断登录结果
-        response_json = json.loads(response.text)
-        if response_json["status"] != "200":
-            raise Exception(f"登录失败: {response_json['message']}")
+        try:
+            response_json = json.loads(response.text)
+        except json.JSONDecodeError:
+            raise Exception("登录响应格式错误")
+            
+        if response_json.get("status") != "200":
+            raise Exception(f"登录失败: {response_json.get('message', '未知错误')}")
         
         ## 获取新的JSESSIONID
         updatedJsessionId = response.cookies.get('JSESSIONID')
+        if not updatedJsessionId:
+            raise Exception("登录后未能获取新的JSESSIONID")
         
         return updatedJsessionId
 
@@ -230,17 +241,25 @@ class Table2Json:
             # 地点信息通常在第四行
             location = text_lines[3] if len(text_lines) > 3 else ""
             
-            return {
+            # 改进的课程信息处理
+            course_data = {
                 "weekday": weekday,
                 "title": title,
-                "teacher": teacher,
+                "teacher": teacher.replace("教师:", "").strip(),
                 "teaching_weeks": teaching_weeks,
                 "class_periods": class_periods,
                 "location": location
             }
             
+            # 数据验证
+            if not all([course_data["title"], course_data["teaching_weeks"], course_data["class_periods"]]):
+                return None
+                
+            return course_data
+            
         except Exception as e:
-            raise Exception(f"解析课程信息时出错: {e}")
+            print(f"解析课程信息时出错: {e}")
+            return None
 
     @staticmethod
     def main(html_content):
@@ -250,7 +269,12 @@ class Table2Json:
 
 
 class Json2Ics:
-    def __init__(self):
+    def __init__(self, remind_time="15"):
+        """
+        初始化ICS生成器
+        Args:
+            remind_time: 提醒时间（分钟），-1表示禁用，0表示开始时，正数表示提前分钟数
+        """
         global _TIMETABLE_DATA_CACHE
         with _CACHE_LOCK:
             if _TIMETABLE_DATA_CACHE is None:
@@ -267,29 +291,50 @@ class Json2Ics:
         
         self.settingTimetable = _TIMETABLE_DATA_CACHE["timetable"]
         self.first_monday = _TIMETABLE_DATA_CACHE["first_monday"]
+        self.remind_time = remind_time
     
     def parse_weeks(self, weeks_str):
         """解析教学周字符串"""
+        if not weeks_str:
+            return []
+            
         weeks = []
         parts = str(weeks_str).split(',')
         for part in parts:
+            part = part.strip()
             if '-' in part:
-                start, end = map(int, part.split('-'))
-                weeks.extend(range(start, end + 1))
+                try:
+                    start, end = map(int, part.split('-'))
+                    weeks.extend(range(start, end + 1))
+                except ValueError:
+                    print(f"无效的周次范围: {part}")
             else:
-                weeks.append(int(part))
+                try:
+                    weeks.append(int(part))
+                except ValueError:
+                    print(f"无效的周次: {part}")
         return weeks
     
     def parse_periods(self, periods_str):
         """解析节次字符串"""
+        if not periods_str:
+            return []
+            
         periods = []
         parts = str(periods_str).split(',')
         for part in parts:
+            part = part.strip()
             if '-' in part:
-                start, end = map(int, part.split('-'))
-                periods.extend(range(start, end + 1))
+                try:
+                    start, end = map(int, part.split('-'))
+                    periods.extend(range(start, end + 1))
+                except ValueError:
+                    print(f"无效的节次范围: {part}")
             else:
-                periods.append(int(part))
+                try:
+                    periods.append(int(part))
+                except ValueError:
+                    print(f"无效的节次: {part}")
         return periods
     
     def get_time_range(self, periods):
@@ -312,6 +357,27 @@ class Json2Ics:
         target_date = first_monday + timedelta(days=(week_num - 1) * 7 + (weekday - 1))
         return target_date
     
+    def generate_alarm_component(self):
+        """生成提醒组件"""
+        if self.remind_time == "-1" or int(self.remind_time) < 0:
+            return []  # 禁用通知
+        
+        alarm_component = []
+        alarm_component.append("BEGIN:VALARM")
+        alarm_component.append("ACTION:DISPLAY")
+        alarm_component.append("DESCRIPTION:课程提醒")
+        
+        # 设置提醒时间
+        if self.remind_time == "0":
+            # 事件开始时提醒
+            alarm_component.append("TRIGGER;RELATED=START:PT0M")
+        else:
+            # 提前指定分钟提醒
+            alarm_component.append(f"TRIGGER:-PT{self.remind_time}M")
+        
+        alarm_component.append("END:VALARM")
+        return alarm_component
+    
     def generate_ics_content(self, courses_data):
         """生成ICS文件内容并返回字符串"""
         ics_content = []
@@ -320,8 +386,19 @@ class Json2Ics:
         ics_content.append("PRODID:-//Course Schedule Generator//")
         ics_content.append("CALSCALE:GREGORIAN")
         ics_content.append("METHOD:PUBLISH")
-        ics_content.append("X-WR-CALNAME:课程表")
-        ics_content.append("X-WR-TIMEZONE:Asia/Shanghai")
+        ics_content.append("X-WR-CALNAME:喜鹊儿")
+        
+        # 添加时区定义
+        ics_content.append("BEGIN:VTIMEZONE")
+        ics_content.append("TZID:Asia/Shanghai")
+        ics_content.append("X-LIC-LOCATION:Asia/Shanghai")
+        ics_content.append("BEGIN:STANDARD")
+        ics_content.append("TZOFFSETFROM:+0800")
+        ics_content.append("TZOFFSETTO:+0800")
+        ics_content.append("TZNAME:CST")
+        ics_content.append("DTSTART:19700101T000000")
+        ics_content.append("END:STANDARD")
+        ics_content.append("END:VTIMEZONE")
         
         event_count = 0
         
@@ -330,8 +407,12 @@ class Json2Ics:
                 teaching_weeks = self.parse_weeks(course['teaching_weeks'])
                 class_periods = self.parse_periods(course['class_periods'])
                 
+                if not teaching_weeks or not class_periods:
+                    continue
+                
                 start_time_str, end_time_str = self.get_time_range(class_periods)
                 if not start_time_str or not end_time_str:
+                    print(f"无法获取课程时间范围: {course['title']}")
                     continue
                 
                 for week_num in teaching_weeks:
@@ -344,29 +425,44 @@ class Json2Ics:
                     # 生成唯一ID
                     event_uid = f"{course['title']}_{week_num}_{course['weekday']}_{start_time_str}@courses"
                     
-                    # 添加事件
+                    # 添加事件（带时区）
                     ics_content.append("BEGIN:VEVENT")
                     ics_content.append(f"SUMMARY:{course['title']}")
                     ics_content.append(f"DESCRIPTION:教师: {course['teacher']}\\n教学周: {course['teaching_weeks']}\\n节次: {course['class_periods']}")
                     ics_content.append(f"LOCATION:{course['location']}")
-                    ics_content.append(f"DTSTART:{start_datetime.strftime('%Y%m%dT%H%M%S')}")
-                    ics_content.append(f"DTEND:{end_datetime.strftime('%Y%m%dT%H%M%S')}")
+                    ics_content.append(f"DTSTART;TZID=Asia/Shanghai:{start_datetime.strftime('%Y%m%dT%H%M%S')}")
+                    ics_content.append(f"DTEND;TZID=Asia/Shanghai:{end_datetime.strftime('%Y%m%dT%H%M%S')}")
                     ics_content.append(f"UID:{event_uid}")
+                    
+                    # 添加提醒
+                    alarm_lines = self.generate_alarm_component()
+                    ics_content.extend(alarm_lines)
+                    
                     ics_content.append("END:VEVENT")
                     
                     event_count += 1
                     
             except Exception as e:
-                raise Exception(f"处理课程信息时出错: {e}")
+                print(f"处理课程信息时出错: {e}, 课程: {course}")
         
         ics_content.append("END:VCALENDAR")
         
         result = '\n'.join(ics_content)
+        print(f"成功生成 {event_count} 个课程事件，提醒设置: {self.get_remind_description()}")
         return result
+    
+    def get_remind_description(self):
+        """获取提醒设置的描述"""
+        if self.remind_time == "-1" or int(self.remind_time) < 0:
+            return "禁用提醒"
+        elif self.remind_time == "0":
+            return "开始时提醒"
+        else:
+            return f"提前{self.remind_time}分钟提醒"
     
     def main(self, courses_str):
         courses_json = json.loads(courses_str)
-        return self.generate_ics_content(courses_json)
+        return self.generate_ics_content(courses_json)    
 
 
 class XqeTablePull:
@@ -379,14 +475,18 @@ class XqeTablePull:
         }
         try:
             response = requests.get(f"{base_url}/jw/common/showYearTerm.action", headers=headers)
+            response.raise_for_status()
         except Exception as e:
             raise Exception(f"获取个人信息时出错: {e}")
         
         # 匹配结果
-        response_json = json.loads(response.text)
-        schoolYear = response_json['xn']
-        term = response_json['xqM']
-        userCode = response_json['userCode']
+        try:
+            response_json = json.loads(response.text)
+            schoolYear = response_json['xn']
+            term = response_json['xqM']
+            userCode = response_json['userCode']
+        except (KeyError, json.JSONDecodeError) as e:
+            raise Exception(f"解析用户信息失败: {e}")
 
         if not schoolYear or not term:
             raise Exception("无法获取用户信息")
@@ -405,74 +505,43 @@ class XqeTablePull:
         # 请求课表
         try:
             response = requests.get(f"{base_url}/student/wsxk.xskcb10319.jsp?params={params}", headers=headers)
+            response.raise_for_status()
         except Exception as e:
             raise Exception(f"从教务系统获取课表时出现错误：{e}")
 
         return response.text
 
 
-def Main(username, onceMd5Password, base_url):
+def Main(username, onceMd5Password, base_url, remindTime):
     """
     主函数：获取课程表ICS内容
-    输入: 用户名, 密码, 主页链接
+    输入: 用户名, 密码, 主页链接, 提醒时间
     输出: ICS格式的课程表内容
     """
     xqel = XqeLogin(base_url)
 
     # 获取动态参数
     print("正在准备登录...", end='', flush=True)
-    try:
-        jsessionid, sessionid, deskey, nowtime = xqel.GetDynamicParams()
-        print("\r正在准备登录...✅")
-    except Exception as e:
-        print("\r正在准备登录...💥")
-        raise e
+    jsessionid, sessionid, deskey, nowtime = xqel.GetDynamicParams()
 
     # 生成登录参数
     signInParams = xqel.SignInParamsCombime(username, onceMd5Password, nowtime, deskey, sessionid)
 
     # 登录
-    print("正在登录...", end='', flush=True)
-    try:
-        jsessionid = xqel.SignIn(signInParams, jsessionid)
-        print("\r正在登录...✅")
-    except Exception as e:
-        print("\r正在登录...💥")
-        raise e
+    jsessionid = xqel.SignIn(signInParams, jsessionid)
 
     # 获取课表参数
-    print("正在收集信息...", end='', flush=True)
-    try:
-        schoolYear, term, userCode = XqeTablePull.GetTableParams(jsessionid, base_url)
-        print("\r正在收集信息...✅")
-    except Exception as e:
-        print("\r正在收集信息...💥")
-        raise e
-
+    schoolYear, term, userCode = XqeTablePull.GetTableParams(jsessionid, base_url)
+    
     # 请求课表
-    print("正在请求课表...", end='', flush=True)
-    try:
-        xqeTable_html = XqeTablePull.GetTable(jsessionid, schoolYear, term, userCode, base_url)
-        print("\r正在请求课表...✅")
-    except Exception as e:
-        print("\r正在请求课表...💥")
-        raise e
+    xqeTable_html = XqeTablePull.GetTable(jsessionid, schoolYear, term, userCode, base_url)
     
     # 转换到JSON
-    print("正在生成日历...", end='', flush=True)
-    try:
-        courses = Table2Json.main(xqeTable_html)
-    except Exception as e:
-        print("\r正在生成日历...💥")
-        raise e
+    courses = Table2Json.main(xqeTable_html)
 
     # 转换为ICS
-    try:
-        json2ics = Json2Ics()
-        ics_content = json2ics.main(courses)
-        print("\r正在生成日历...✅")
-    except Exception as e:
-        print("\r正在生成日历...💥")
-        raise e
+    json2ics = Json2Ics(remind_time=remindTime)
+    ics_content = json2ics.main(courses)
+
 
     return ics_content
