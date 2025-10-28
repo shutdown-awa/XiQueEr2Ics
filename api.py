@@ -3,63 +3,91 @@ from fastapi.responses import FileResponse, PlainTextResponse
 import re
 import tempfile
 import logging
+from urllib.parse import urlparse
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="XiQueEr To ICS", description="从喜鹊儿获取课表的工具", root_path="/xqe2ics/subscribe/v1")# root_path用于供生产环境中反向代理使用
+app = FastAPI(
+    title="XiQueEr To ICS",
+    description="从喜鹊儿获取课表的工具",
+    root_path="/xqe2ics/subscribe/v1" # root_path用于供生产环境中反向代理使用
+)  
 
 def validate_student_id(student_id: str) -> bool:
-    """验证学号格式：12位数字"""
-    return bool(re.match(r'^\d{12}$', student_id))
+    """验证学号是否为纯数字"""
+    return student_id.isdigit()
 
 def validate_password(password: str) -> bool:
-    """验证密码格式：通常的密码要求"""
-    # 密码至少8-30位
+    """验证密码格式：32位小写MD5"""
     return bool(re.fullmatch(r'^[a-f0-9]{32}$', password))
+
+def validate_and_normalize_site(site: str) -> str:
+    """验证并标准化 site URL"""
+    # 兼容v1.0.0-Beta版本（无法自定义地址）
+    if not site:
+        return "http://202.103.141.242"
     
+    # 去除末尾斜杠
+    site = site.rstrip('/')
+    
+    # 验证是否为合法的 HTTP/HTTPS URL
+    parsed = urlparse(site)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("site 必须是有效的 HTTP 或 HTTPS URL")
+    
+    return site
 
 @app.get("/{student_id}.ics")
 async def get_ics_file(
     student_id: str,
-    pwd: str = Query(..., description="用户密码")
+    pwd: str = Query(..., description="用户密码（32位小写MD5）"),
+    site: str = Query(None, description="站点地址，默认为 http://202.103.141.242"),
+    remindTime: int = Query(30, description="提醒时间（分钟），默认为30")
 ):
     """
     获取ICS日历文件
-    - student_id: 12位学号
-    - pwd: 用户密码
+    - student_id: 学号
+    - pwd: 用户密码（32位小写MD5）
+    - site: 可选，站点地址，默认为 http://202.103.141.242
+    - remindTime: 可选，提醒时间（分钟），默认为30
     """
-    # 将密码转为小写
     pwd = pwd.lower()
 
     # 验证学号格式
     if not validate_student_id(student_id):
         logger.warning(f"Invalid student ID format: {student_id}")
-        raise HTTPException(status_code=400, detail="学号格式错误，应为12位数字")
+        raise HTTPException(status_code=400, detail="学号格式错误")
     
     # 验证密码格式
     if not validate_password(pwd):
         logger.warning(f"Invalid password format for student ID: {student_id}")
-        raise HTTPException(status_code=400, detail="密码不符合MD5格式")
+        raise HTTPException(status_code=400, detail="密码不符合32位小写MD5格式")
     
-    logger.info(f"Valid request for student ID: {student_id}")
+    # 验证并标准化 site
+    try:
+        normalized_site = validate_and_normalize_site(site)
+    except ValueError as e:
+        logger.warning(f"Invalid site format: {site} - {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    logger.info(f"Valid request for student ID: {student_id}, site: {normalized_site}, remindTime: {remindTime}")
     
     try:
-        # 导入xqe模块并调用Main函数
         import xqe
+        result = xqe.Main(
+            username=student_id,
+            onceMd5Password=pwd,
+            base_url=normalized_site,
+            remindTime=remindTime
+        )
         
-        # 调用xqe.py中的Main函数
-        result = xqe.Main(username=student_id, onceMd5Password=pwd, base_url="http://202.103.141.242")
-        
-        # 检查返回结果是否为有效的ICS文件内容
         if isinstance(result, str) and result.startswith("BEGIN:VCALENDAR"):
-            # 创建临时ICS文件
             with tempfile.NamedTemporaryFile(mode='w', suffix='.ics', delete=False, encoding='utf-8') as temp_file:
                 temp_file.write(result)
                 temp_file_path = temp_file.name
             
-            # 返回ICS文件
             return FileResponse(
                 path=temp_file_path,
                 media_type='text/calendar',
@@ -67,10 +95,8 @@ async def get_ics_file(
                 headers={"Content-Disposition": f"attachment; filename={student_id}.ics"}
             )
         else:
-            # 如果返回的不是ICS内容，尝试返回结果作为文本
             logger.error(f"Main function did not return valid ICS content for student ID: {student_id}")
             raise HTTPException(status_code=500, detail="获取ICS文件失败，服务内部错误")
-    
     
     except Exception as e:
         logger.error(f"Error processing request for student ID {student_id}: {str(e)}")
@@ -81,7 +107,7 @@ def read_root():
     """根路径，提供API使用说明"""
     return {
         "message": "ICS文件生成服务",
-        "usage": "访问https://blog.hishutdown.cn/?p=201了解更多",
+        "usage": "访问 https://blog.hishutdown.cn/?p=201 了解更多",
     }
 
 # 错误处理中间件
