@@ -535,7 +535,6 @@ def Main(username, onceMd5Password, base_url, remindTime):
     xqel = XqeLogin(base_url)
 
     # 获取动态参数
-    print("正在准备登录...", end='', flush=True)
     jsessionid, sessionid, deskey, nowtime = xqel.GetDynamicParams()
 
     # 生成登录参数
