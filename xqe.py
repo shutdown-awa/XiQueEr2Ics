@@ -258,8 +258,7 @@ class Table2Json:
             return course_data
             
         except Exception as e:
-            print(f"解析课程信息时出错: {e}")
-            return None
+            raise Exception(f"解析课程信息时出错: {e}")
 
     @staticmethod
     def main(html_content):
@@ -302,17 +301,38 @@ class Json2Ics:
         parts = str(weeks_str).split(',')
         for part in parts:
             part = part.strip()
-            if '-' in part:
+            
+            # 检查是否为单双周格式
+            is_odd = '单' in part  # 单周
+            is_even = '双' in part  # 双周
+            
+            # 移除单双周标识符，获取纯数字部分
+            clean_part = part.replace('单', '').replace('双', '').strip()
+            
+            if '-' in clean_part:
                 try:
-                    start, end = map(int, part.split('-'))
-                    weeks.extend(range(start, end + 1))
+                    start, end = map(int, clean_part.split('-'))
+                    week_range = list(range(start, end + 1))
+                    
+                    # 根据单双周过滤
+                    if is_odd:
+                        week_range = [week for week in week_range if week % 2 == 1]  # 奇数周
+                    elif is_even:
+                        week_range = [week for week in week_range if week % 2 == 0]  # 偶数周
+                    
+                    weeks.extend(week_range)
                 except ValueError:
-                    print(f"无效的周次范围: {part}")
+                    raise Exception(f"无效的周次范围: {part}")
             else:
                 try:
-                    weeks.append(int(part))
+                    week = int(clean_part)
+                    # 检查单双周限制
+                    if (is_odd and week % 2 == 1) or (is_even and week % 2 == 0) or (not is_odd and not is_even):
+                        weeks.append(week)
+                    # 如果指定了单双周但不匹配，则不添加（如"5 双"）
                 except ValueError:
-                    print(f"无效的周次: {part}")
+                    raise Exception(f"无效的周次: {part}")
+        
         return weeks
     
     def parse_periods(self, periods_str):
@@ -329,12 +349,12 @@ class Json2Ics:
                     start, end = map(int, part.split('-'))
                     periods.extend(range(start, end + 1))
                 except ValueError:
-                    print(f"无效的节次范围: {part}")
+                    raise Exception(f"无效的节次范围: {part}")
             else:
                 try:
                     periods.append(int(part))
                 except ValueError:
-                    print(f"无效的节次: {part}")
+                    raise Exception(f"无效的节次: {part}")
         return periods
     
     def get_time_range(self, periods):
@@ -412,8 +432,7 @@ class Json2Ics:
                 
                 start_time_str, end_time_str = self.get_time_range(class_periods)
                 if not start_time_str or not end_time_str:
-                    print(f"无法获取课程时间范围: {course['title']}")
-                    continue
+                    raise Exception(f"无法获取课程时间范围: {course['title']}")
                 
                 for week_num in teaching_weeks:
                     date = self.calculate_date(week_num, course['weekday'])
@@ -434,6 +453,11 @@ class Json2Ics:
                     ics_content.append(f"DTEND;TZID=Asia/Shanghai:{end_datetime.strftime('%Y%m%dT%H%M%S')}")
                     ics_content.append(f"UID:{event_uid}")
                     
+                    # 添加 Outlook 特定的提醒属性（在 VEVENT 级别）
+                    if self.remind_time != "-1" and int(self.remind_time) >= 0:
+                        # REMINDERMINUTESBEFORESTART 是 Outlook 特定的属性
+                        ics_content.append(f"REMINDERMINUTESBEFORESTART:{self.remind_time}")
+
                     # 添加提醒
                     alarm_lines = self.generate_alarm_component()
                     ics_content.extend(alarm_lines)
@@ -443,22 +467,12 @@ class Json2Ics:
                     event_count += 1
                     
             except Exception as e:
-                print(f"处理课程信息时出错: {e}, 课程: {course}")
+                raise Exception(f"处理课程信息时出错: {e}, 课程: {course}")
         
         ics_content.append("END:VCALENDAR")
         
         result = '\n'.join(ics_content)
-        print(f"成功生成 {event_count} 个课程事件，提醒设置: {self.get_remind_description()}")
         return result
-    
-    def get_remind_description(self):
-        """获取提醒设置的描述"""
-        if self.remind_time == "-1" or int(self.remind_time) < 0:
-            return "禁用提醒"
-        elif self.remind_time == "0":
-            return "开始时提醒"
-        else:
-            return f"提前{self.remind_time}分钟提醒"
     
     def main(self, courses_str):
         courses_json = json.loads(courses_str)
