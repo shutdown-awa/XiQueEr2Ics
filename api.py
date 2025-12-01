@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 import re
 import tempfile
 import logging
@@ -119,3 +119,12 @@ async def custom_http_exception_handler(request, exc):
 async def server_error_handler(request, exc):
     logger.error(f"Server error: {str(exc)}")
     return PlainTextResponse("服务器内部错误", status_code=500)
+
+# HEAD请求支持
+@app.api_route("/{full_path:path}", methods=["HEAD"])
+
+async def handle_head_request(full_path: str):
+
+    # 可以返回空响应体，只带状态码和必要头信息
+
+    return Response(status_code=200)
