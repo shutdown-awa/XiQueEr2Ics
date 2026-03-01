@@ -53,14 +53,13 @@ class XqeLogin:
         self.kingoDes = KingoDES()
 
     def GetDynamicParams(self):
-        """初始化加密模块与会话"""
         """获取Session$JSESSIONID"""
         url = f"{self.base_url}/cas/login.action"
         try:
             response = self.session.get(url)
             response.raise_for_status()
         except Exception as e:
-            raise Exception(f"网络请求错误：{e}")
+            raise Exception(f"未能连接到{self.base_url}({e})")
 
         # 从Cookie获取JSESSIONID
         jsessionid = self.session.cookies.get('JSESSIONID')
@@ -72,24 +71,41 @@ class XqeLogin:
         match = re.search(r'var\s+_sessionid\s*=\s*"([A-F0-9]+)"', content)
         sessionid = match.group(1) if match else None
         
-        """获取deskey&nowtime"""
-        # Get encryption parameters
-        enc_url = f"{self.base_url}/custom/js/SetKingoEncypt.jsp"
+
+        """获取deskey参数"""
+        url = f"{self.base_url}/frame/homepage?method=getTempDeskey"
+        
         try:
-            enc_response = self.session.get(enc_url)
-            enc_response.raise_for_status()
+            response = self.session.get(url)
+            response.raise_for_status()
         except Exception as e:
-            raise Exception(f"获取加密参数失败：{e}")
+            raise Exception(f"获取DES密钥时遇到网络问题({e})")
         
-        deskey_match = re.search(r'var _deskey = \'([^\']+)\'', enc_response.text)
-        nowtime_match = re.search(r'var _nowtime = \'([^\']+)\'', enc_response.text)
+        deskey = response.text
+        if not deskey:
+            raise ValueError("教务系统未返回deskey参数")
+
+        """获取nowtime参数"""
+        url = f"{self.base_url}/frame/homepage?method=getTempNowtime"
         
-        deskey = deskey_match.group(1) if deskey_match else None
-        nowtime = nowtime_match.group(1) if nowtime_match else None
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+        except Exception as e:
+            raise Exception(f"获取当前时间时遇到网络问题({e})")
+        
+        nowtime = response.text
+        if not nowtime:
+            raise ValueError("教务系统未返回nowtime参数")
+        
 
         # 错误检测
-        if not jsessionid or not sessionid or not deskey or not nowtime:
-            raise ValueError("获取动态参数失败")
+        if not sessionid:
+            raise ValueError("教务系统未返回sessionid参数")
+        if not deskey:
+            raise ValueError("教务系统未返回deskey参数")
+        if not nowtime:
+            raise ValueError("教务系统未返回nowtime参数")
 
         return jsessionid, sessionid, deskey, nowtime
 
