@@ -1,3 +1,6 @@
+// API 基础地址
+var API_BASE_URL = 'https://api.hishutdown.cn/xqe2ics/subscribe/v2';
+
 // MD5 转换函数
 function md5(string) {
   function md5_RotateLeft(lValue, iShiftBits) {
@@ -156,18 +159,13 @@ function md5(string) {
   return (md5_WordToHex(a) + md5_WordToHex(b) + md5_WordToHex(c) + md5_WordToHex(d)).toLowerCase();
 }
 
-// 前端逻辑
+  // 前端逻辑
 (function() {
   var SCHOOLS = [];
 
   // 加载学校列表
-  function loadSchools() {
-    // 根据当前路径确定 schools.json 的位置
+  function loadSchools(callback) {
     var jsonPath = 'schools.json';
-    if (window.location.pathname.indexOf('/school/') !== -1) {
-      jsonPath = '../../schools.json';
-    }
-    
     var xhr = new XMLHttpRequest();
     xhr.open('GET', jsonPath, true);
     xhr.onreadystatechange = function() {
@@ -183,6 +181,7 @@ function md5(string) {
           SCHOOLS = [];
         }
         console.log('学校列表:', SCHOOLS.length, '所');
+        if (callback) callback();
       }
     };
     xhr.send();
@@ -227,7 +226,7 @@ function md5(string) {
         li.className = 'item';
         li.innerHTML = '<span class="code">' + s.code + '</span><span class="name">' + (s.name || '') + '</span>';
         li.onclick = function() {
-          window.location.href = 'school/' + encodeURIComponent(s.code) + '/index.html?code=' + encodeURIComponent(s.code) + '&name=' + encodeURIComponent(s.name || '');
+          window.location.href = 'subscribe.html?code=' + encodeURIComponent(s.code) + '&name=' + encodeURIComponent(s.name || '');
         };
         results.appendChild(li);
       });
@@ -281,11 +280,9 @@ function md5(string) {
         // 将密码转换为 MD5
         var md5Password = md5(password);
 
-        // 构造验证请求URL（包含force=true，验证失败时返回错误而不是带错误事件的日历）
-        var verifyUrl = 'https://api.hishutdown.cn/xqe2ics/subscribe/v2/' + encodeURIComponent(username) + '.ics?pwd=' + md5Password + '&remindTime=' + encodeURIComponent(remindTime) + '&school_code=' + encodeURIComponent(code) + '&all_semesters=true&force=true';
+        var verifyUrl = API_BASE_URL + '/' + encodeURIComponent(username) + '.ics?pwd=' + md5Password + '&remindTime=' + encodeURIComponent(remindTime) + '&school_code=' + encodeURIComponent(code) + '&all_semesters=true&force=true';
 
-        // 构造展示给用户的订阅链接（不包含force参数）
-        var icsUrl = 'https://api.hishutdown.cn/xqe2ics/subscribe/v2/' + encodeURIComponent(username) + '.ics?pwd=' + md5Password + '&remindTime=' + encodeURIComponent(remindTime) + '&school_code=' + encodeURIComponent(code) + '&all_semesters=true';
+        var icsUrl = API_BASE_URL + '/' + encodeURIComponent(username) + '.ics?pwd=' + md5Password + '&remindTime=' + encodeURIComponent(remindTime) + '&school_code=' + encodeURIComponent(code) + '&all_semesters=true';
 
         var xhr = new XMLHttpRequest();
         xhr.open('GET', verifyUrl, true);
@@ -348,12 +345,15 @@ function md5(string) {
 
   // 入口
   document.addEventListener('DOMContentLoaded', function() {
-    loadSchools();
     var path = window.location.pathname;
-    if (path.indexOf('/school/') !== -1) {
-      renderSubscribe();
-    } else {
-      renderIndex();
-    }
+    var isSubscribePage = path.indexOf('/subscribe.html') !== -1 || path.indexOf('subscribe.html') !== -1;
+    
+    loadSchools(function() {
+      if (isSubscribePage) {
+        renderSubscribe();
+      } else {
+        renderIndex();
+      }
+    });
   });
 })();

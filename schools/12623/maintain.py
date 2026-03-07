@@ -189,8 +189,8 @@ class SchoolCalendarSync:
                 schoolCalendar[code] = term_data
                 logging.info(f"Successfully synced timetable for term {code}")
 
-                # 随机等待2-4秒，模拟人类行为，避免过快请求被封禁
-                time.sleep(2 + 2 * random.random())
+                # 随机等待1-2秒，模拟人类行为，避免过快请求被封禁
+                time.sleep(1 + 1 * random.random())
 
 
             except Exception as e:
