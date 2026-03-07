@@ -1,0 +1,75 @@
+/* 轻量级 MD3 风格样式 */
+:root{
+  --mdc-theme-surface:#ffffff;
+  --mdc-theme-on-surface:#1f2937;
+  --mdc-theme-primary:#6200ee;
+  --mdc-theme-primary-light:#9c4dff;
+  --mdc-theme-on-primary:#ffffff;
+  --radius:14px;
+  --shadow: 0 6px 18px rgba(0,0,0,.08);
+  --shadow-hover: 0 10px 25px rgba(0,0,0,.12);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:linear-gradient(135deg,#f5f7ff 0%, #eef6ff 60%, #eaf6f1 100%);font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; color: #1f2937;min-height:100vh;display:flex;flex-direction:column;}
+.container{max-width:600px;margin:0 auto;padding:0 1rem;flex:1;width:100%}
+.md3-header{padding:20px 0}
+.header-inner{text-align:center}
+.brand{font-weight:700;font-size:24px;color:#1f1f1f}
+
+/* 搜索卡片 */
+.search-card{padding:16px}
+.search-card input{width:100%;padding:16px 18px;border-radius:12px;border:2px solid #e5e7eb;background:white;font-size:16px;transition:border-color .2s,box-shadow .2s}
+.search-card input:focus{outline:none;border-color:var(--mdc-theme-primary);box-shadow:0 0 0 3px rgba(98,0,238,.15)}
+
+/* 结果卡片 */
+.results-card{min-height:60px;padding:0 16px 16px}
+.results{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.results .item{display:flex;align-items:center;padding:14px 16px;border-radius:12px;border:1px solid #e5e7eb;background:white;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.results .item:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:var(--mdc-theme-primary-light)}
+.results .code{font-weight:700;color:var(--mdc-theme-primary);margin-right:12px;min-width:70px}
+.results .name{color:#374151}
+
+/* 帮助链接 */
+.help-link{text-align:center;padding:20px 0;color:#6b7280}
+.help-link a{color:var(--mdc-theme-primary);text-decoration:none;font-weight:500}
+.help-link a:hover{text-decoration:underline}
+
+/* 表单页面 */
+.form-card{max-width:500px;margin:20px auto}
+.form-card h2{margin:0 0 16px;font-size:20px;text-align:center}
+.school-info{text-align:center;margin-bottom:16px;color:#6b7280;font-size:14px}
+.form-grid{display:flex;flex-direction:column;gap:14px}
+.form-grid label{font-size:13px;color:#6b7280;margin-bottom:4px;display:block}
+.form-grid input{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;transition:border-color .2s}
+.form-grid input:focus{outline:none;border-color:var(--mdc-theme-primary)}
+.form-grid input[readonly]{background:#f3f4f6;color:#9ca3af}
+.actions{margin-top:20px}
+.mdc-button{width:100%;background:var(--mdc-theme-primary);color:white;border:none;padding:14px 20px;border-radius:10px;cursor:pointer;font-size:16px;font-weight:600;transition:background .2s,transform .1s}
+.mdc-button:hover{background:#5000d}
+.mdc-button:active{transform:scale(.98)}
+.md6c-button.secondary{background:#e2e8f0;color:#111}
+.result{margin-top:20px;border:1px solid #d1d5db;border-radius:10px;background:#f8fbff;padding:14px}
+.result-label{font-size:13px;color:#6b7280;margin-bottom:8px}
+.result-content{display:flex;gap:8px}
+.result-content input{flex:1;padding:10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:white}
+.result-content .mdc-button{width:auto;padding:10px 16px}
+.error{margin-top:16px;padding:12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;font-size:14px}
+
+/* 加载动画 */
+.loading{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;color:#6b7280}
+.loading-spinner{width:16px;height:16px;border:2px solid #e5e7eb;border-top-color:#6200ee;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 按钮禁用状态 */
+.mdc-button:disabled{opacity:.6;cursor:not-allowed}
+
+/* 动画 */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.card{animation:fadeIn .3s ease-out}
+
+@media (max-width: 600px){
+  .container{padding:0 .75rem}
+  .search-card input{padding:14px 16px}
+  .results .item{padding:12px 14px}
+}

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>XiQueEr2ICS - 订阅设置</title>
+  <link href="../../styles.css" rel="stylesheet" />
+</head>
+<body>
+  <header class="md3-header">
+    <div class="container header-inner">
+      <div class="brand">XiQueEr2ICS</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card form-card" aria-label="订阅表单">
+      <h2>订阅设置</h2>
+      <div class="school-info">
+        <span id="schoolName">学校：加载中...</span>
+      </div>
+      <div class="form-grid">
+        <label>学校代码</label>
+        <input id="school_code" type="text" readonly />
+        
+        <label>用户名</label>
+        <input id="username" type="text" placeholder="请输入用户名（学号）" />
+
+        <label>密码</label>
+        <input id="password" type="password" placeholder="请输入登录密码" />
+
+        <label>提醒时间（分钟）</label>
+        <input id="remindTime" type="number" value="30" />
+      </div>
+      <div class="actions">
+        <button id="generate" class="mdc-button">生成订阅链接</button>
+        <div id="loading" class="loading" style="display:none;">
+          <span class="loading-spinner"></span>
+          <span class="loading-text">验证中...</span>
+        </div>
+      </div>
+
+      <div id="result" class="result" style="display:none;">
+        <div class="result-label">订阅链接</div>
+        <div class="result-content">
+          <input id="subscribeUrl" type="text" readonly />
+          <button id="copy" class="mdc-button secondary">复制</button>
+        </div>
+      </div>
+
+      <div id="error" class="error" style="display:none;"></div>
+    </section>
+  </main>
+
+  <script src="../../scripts.js"></script>
+</body>
+</html>

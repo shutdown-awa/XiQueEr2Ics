@@ -1,0 +1,62 @@
+{
+    "2025-1": {
+        "termStartDate": "2026-03-02",
+        "termEndDate": "2026-07-10",
+        "termVacationStartDate": "2026-07-11",
+        "termVacationEndDate": "2026-08-30"
+    },
+    "2025-0": {
+        "termStartDate": "2025-09-01",
+        "termEndDate": "2026-01-11",
+        "termVacationStartDate": "2026-01-12",
+        "termVacationEndDate": "2026-03-01"
+    },
+    "2024-1": {
+        "termStartDate": "2025-02-24",
+        "termEndDate": "2025-07-06",
+        "termVacationStartDate": "2025-07-07",
+        "termVacationEndDate": "2025-08-31"
+    },
+    "2024-0": {
+        "termStartDate": "2024-09-02",
+        "termEndDate": "2025-01-10",
+        "termVacationStartDate": "2025-01-11",
+        "termVacationEndDate": "2025-02-23"
+    },
+    "2023-1": {
+        "termStartDate": "2024-03-04",
+        "termEndDate": "2024-07-04",
+        "termVacationStartDate": "2024-07-05",
+        "termVacationEndDate": "2024-09-01"
+    },
+    "2023-0": {
+        "termStartDate": "2023-09-04",
+        "termEndDate": "2024-01-05",
+        "termVacationStartDate": "2024-01-06",
+        "termVacationEndDate": "2024-03-03"
+    },
+    "2022-1": {
+        "termStartDate": "2023-02-27",
+        "termEndDate": "2023-07-06",
+        "termVacationStartDate": "2023-07-07",
+        "termVacationEndDate": "2023-09-03"
+    },
+    "2022-0": {
+        "termStartDate": "2022-08-22",
+        "termEndDate": "2022-12-30",
+        "termVacationStartDate": "2022-12-31",
+        "termVacationEndDate": "2023-02-26"
+    },
+    "2021-1": {
+        "termStartDate": "2022-02-28",
+        "termEndDate": "2022-07-08",
+        "termVacationStartDate": "2022-07-09",
+        "termVacationEndDate": "2022-08-21"
+    },
+    "2021-0": {
+        "termStartDate": "2021-08-30",
+        "termEndDate": "2022-01-07",
+        "termVacationStartDate": "2022-01-08",
+        "termVacationEndDate": "2022-02-27"
+    }
+}
