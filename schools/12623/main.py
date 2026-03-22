@@ -10,7 +10,9 @@ import base64
 import execjs
 import re
 import json
+import threading
 import requests
+from requests.exceptions import RequestException, Timeout, ConnectionError as RequestsConnectionError
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
@@ -128,92 +130,121 @@ class SchoolCalendar:
 
 
 # ============ Login and timetable fetching ============
+_thread_local = threading.local()
+
+
 class XqeClient:
-    """Main client for XiQueEr login and timetable operations."""
+    """Main client for XiQueEr login and timetable operations.
     
-    def __init__(self, base_url: str):
+    Thread-safe: each thread gets its own requests.Session.
+    """
+    
+    DEFAULT_TIMEOUT = 5
+    
+    def __init__(self, base_url: str, timeout: int = None):
         self.base_url = base_url.rstrip('/')
-        self.session = requests.Session()
+        self.timeout = timeout or self.DEFAULT_TIMEOUT
         self.kingo_des = KingoDES()
+    
+    @property
+    def session(self) -> requests.Session:
+        if not hasattr(_thread_local, 'session'):
+            _thread_local.session = requests.Session()
+        return _thread_local.session
+    
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        timeout = kwargs.pop('timeout', self.timeout)
+        try:
+            response = self.session.request(method, url, timeout=timeout, **kwargs)
+            response.raise_for_status()
+            return response
+        except Timeout:
+            raise Timeout(f"教务系统服务器超时({self.timeout}s)")
+        except RequestsConnectionError as e:
+            raise ConnectionError(f"教务系统服务状态异常({str(e)})")
+        except RequestException as e:
+            raise RequestException(f"连接到教务系统时出错({str(e)})")
     
     def login(self, username: str, password: str) -> 'requests.Session':
         """
         Complete login flow and return session.
         Combines: GetDynamicParams + SignInParamsCombime + SignIn
         """
-        # Step 1: Get dynamic parameters from server
-        logger.debug("Fetching login page...")
-        response = self.session.get(f"{self.base_url}/cas/login.action")
-        response.raise_for_status()
-        
-        jsessionid = self.session.cookies.get('JSESSIONID')
-        if not jsessionid:
-            raise ValueError("无法获取 JSESSIONID")
-        
-        # Extract session ID from page
-        match = re.search(r'var\s+_sessionid\s*=\s*"([A-F0-9]+)"', response.text)
-        session_id = match.group(1) if match else None
-        
-        # Get DES key and timestamp
-        deskey = self.session.get(f"{self.base_url}/frame/homepage?method=getTempDeskey").text.strip()
-        nowtime = self.session.get(f"{self.base_url}/frame/homepage?method=getTempNowtime").text.strip()
-        
-        if not session_id or not deskey or not nowtime:
-            raise ValueError("获取动态参数失败")
-        
-        logger.debug("Building login parameters...")
-        # Step 2: Build login parameters
-        params_u = XqeLibs.base64_encode(f"{username};;{session_id}")
-        params_p = XqeLibs.md5(password + XqeLibs.md5(""))
-        
-        params_v1 = (
-            f"_u={params_u}&_p={params_p}&randnumber=&isPasswordPolicy=1&"
-            "txt_mm_expression=14&txt_mm_length=15&txt_mm_userzh=0&"
-            "hid_flag=1&hidlag=1&hid_dxyzm="
-        )
-        
-        token = XqeLibs.md5(XqeLibs.md5(params_v1) + XqeLibs.md5(nowtime))
-        params_v1_encoded = self.kingo_des.encrypt(params_v1, deskey)
-        
-        params = f"params={params_v1_encoded}&token={token}&timestamp={nowtime}"
-        params += f"&deskey={deskey}&ssessionid={session_id}"
-        
-        # Step 3: Submit login
-        logger.debug("Submitting login...")
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': f"{self.base_url}/cas/login.action",
-            'Cookie': f"JSESSIONID={jsessionid}"
-        }
-        
-        response = self.session.post(f"{self.base_url}/cas/logon.action", data=params, headers=headers)
-        response.raise_for_status()
-        
-        result = response.json()
-        if result.get("status") != "200":
-            raise Exception(f"登录失败: {result.get('message', '未知错误')}")
-        
-        logger.info(f"Login successful for user: {username}")
-        return self.session
+        try:
+            logger.debug("Fetching login page...")
+            response = self._request('GET', f"{self.base_url}/cas/login.action")
+            
+            jsessionid = self.session.cookies.get('JSESSIONID')
+            if not jsessionid:
+                raise ValueError("无法获取 JSESSIONID")
+            
+            match = re.search(r'var\s+_sessionid\s*=\s*"([A-F0-9]+)"', response.text)
+            session_id = match.group(1) if match else None
+            
+            logger.debug("Fetching dynamic parameters...")
+            deskey = self._request('GET', f"{self.base_url}/frame/homepage?method=getTempDeskey").text.strip()
+            nowtime = self._request('GET', f"{self.base_url}/frame/homepage?method=getTempNowtime").text.strip()
+            
+            if not session_id or not deskey or not nowtime:
+                raise ValueError("获取动态参数失败")
+            
+            logger.debug("Building login parameters...")
+            params_u = XqeLibs.base64_encode(f"{username};;{session_id}")
+            params_p = XqeLibs.md5(password + XqeLibs.md5(""))
+            
+            params_v1 = (
+                f"_u={params_u}&_p={params_p}&randnumber=&isPasswordPolicy=1&"
+                "txt_mm_expression=14&txt_mm_length=15&txt_mm_userzh=0&"
+                "hid_flag=1&hidlag=1&hid_dxyzm="
+            )
+            
+            token = XqeLibs.md5(XqeLibs.md5(params_v1) + XqeLibs.md5(nowtime))
+            params_v1_encoded = self.kingo_des.encrypt(params_v1, deskey)
+            
+            params = f"params={params_v1_encoded}&token={token}&timestamp={nowtime}"
+            params += f"&deskey={deskey}&ssessionid={session_id}"
+            
+            logger.debug("Submitting login...")
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': f"{self.base_url}/cas/login.action",
+                'Cookie': f"JSESSIONID={jsessionid}"
+            }
+            
+            response = self._request('POST', f"{self.base_url}/cas/logon.action", data=params, headers=headers)
+            result = response.json()
+            if result.get("status") != "200":
+                raise Exception(f"登录失败: {result.get('message', '未知错误')}")
+            
+            logger.info(f"Login successful for user: {username}")
+            return self.session
+        except (Timeout, RequestsConnectionError, RequestException):
+            raise
+        except Exception as e:
+            raise
     
     def get_timetable(self, school_year: str, term: str, user_code: str) -> str:
         """Fetch timetable HTML for specified semester."""
-        jsessionid = self.session.cookies.get('JSESSIONID')
-        
-        headers = {
-            "Referer": f"{self.base_url}/student/xkjg.wdkb.jsp?menucode=S20301",
-            "Cookie": f"JSESSIONID={jsessionid}",
-        }
-        
-        params_raw = f"xn={school_year}&xq={term}&xh={user_code}"
-        params_encoded = XqeLibs.base64_encode(params_raw)
-        
-        url = f"{self.base_url}/student/wsxk.xskcb10319.jsp?params={params_encoded}"
-        response = self.session.get(url, headers=headers)
-        response.raise_for_status()
-        
-        return response.text
+        try:
+            jsessionid = self.session.cookies.get('JSESSIONID')
+            
+            headers = {
+                "Referer": f"{self.base_url}/student/xkjg.wdkb.jsp?menucode=S20301",
+                "Cookie": f"JSESSIONID={jsessionid}",
+            }
+            
+            params_raw = f"xn={school_year}&xq={term}&xh={user_code}"
+            params_encoded = XqeLibs.base64_encode(params_raw)
+            
+            url = f"{self.base_url}/student/wsxk.xskcb10319.jsp?params={params_encoded}"
+            response = self._request('GET', url, headers=headers)
+            
+            return response.text
+        except (Timeout, RequestsConnectionError, RequestException):
+            raise
+        except Exception as e:
+            raise
 
 
 # ============ HTML parsing ============
