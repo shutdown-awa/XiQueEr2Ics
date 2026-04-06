@@ -297,8 +297,10 @@ class ICSBuilder:
     
     def add_error_event(self, reason: str, last_fetch_time: str):
         # 错误提示事件：把课程表过期的日历事件添加为全天日历
-        start_datetime = (datetime.now() - timedelta(days=STALE_DAYS)).date()
-        last_fetch_time = datetime.strptime(last_fetch_time, "%Y-%m-%dT%H:%M:%S.%f").astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        last_fetch_dt = datetime.strptime(last_fetch_time, "%Y-%m-%dT%H:%M:%S.%f").astimezone()
+        # 错误事件从"最后拉取时间 + STALE_DAYS"开始显示
+        start_datetime = (last_fetch_dt + timedelta(days=STALE_DAYS)).date()
+        last_fetch_time = last_fetch_dt.strftime("%Y-%m-%d %H:%M:%S")
 
         event = {
             'title': f'⚠️课表过期且无法更新⚠️-{reason}',
