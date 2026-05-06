@@ -3,9 +3,10 @@ import os
 import re
 import tempfile
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, Response
+from starlette.background import BackgroundTask
 
-# Configure logging - INFO for production, DEBUG if DEBUG env var is set
+# 日志配置：生产环境使用 INFO，DEBUG 环境变量开启时切换为 DEBUG
 log_level = logging.DEBUG if os.environ.get("DEBUG") else logging.INFO
 logging.basicConfig(
     level=log_level,
@@ -47,7 +48,7 @@ async def get_ics_file(
         raise HTTPException(status_code=400, detail="学号格式错误")
     
     if not validate_password(pwd):
-        logger.warning(f"Invalid password format: {student_id}")
+        logger.warning(f"Invalid password format: {pwd}")
         raise HTTPException(status_code=400, detail="密码不符合32位小写MD5格式")
     
     logger.info(f"Request: {student_id}, school={school_code}, all_sem={all_semesters}")
@@ -70,21 +71,23 @@ async def get_ics_file(
                 temp_file.write(result)
                 temp_file_path = temp_file.name
             
-            return FileResponse(
+            response = FileResponse(
                 path=temp_file_path,
                 media_type='text/calendar',
                 filename=f"{student_id}.ics",
-                headers={"Content-Disposition": f"attachment; filename={student_id}.ics"}
+                headers={"Content-Disposition": f"attachment; filename={student_id}.ics"},
+                background=BackgroundTask(os.unlink, temp_file_path)
             )
+            return response
         else:
             logger.error(f"Invalid ICS content for {student_id}")
             raise HTTPException(status_code=500, detail="获取ICS文件失败")
     
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error processing {student_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"{e}")
+    except Exception:
+        logger.error(f"Internal error processing request for {student_id}")
+        raise HTTPException(status_code=500, detail="服务器内部错误")
 
 
 @app.get("/")
@@ -93,16 +96,6 @@ def read_root():
         "message": "ICS文件生成服务",
         "usage": "访问 https://blog.hishutdown.cn/?p=201 了解更多",
     }
-
-
-@app.exception_handler(404)
-async def custom_http_exception_handler(request, exc):
-    return PlainTextResponse("页面未找到", status_code=404)
-
-
-@app.exception_handler(500)
-async def server_error_handler(request, exc):
-    return PlainTextResponse("服务器内部错误", status_code=500)
 
 
 @app.api_route("/{full_path:path}", methods=["HEAD"])

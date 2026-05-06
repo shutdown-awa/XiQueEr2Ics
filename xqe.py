@@ -1,14 +1,17 @@
 import os
 import sys
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 import importlib.util
 import threading
 
+# 全局缓存与线程锁
 _SCHOOL_MODULE_CACHE = {}
+_MODULE_LOCK = threading.Lock()
 _TIMETABLE_DATA_CACHE = None
 _TIMETABLE_LOCK = threading.Lock()
+_FILE_LOCK = threading.Lock()
 
 USER_DIR_BASE = "user"
 CACHE_MINUTES = 40
@@ -34,8 +37,9 @@ def is_user_exists(school_code: str, username: str) -> bool:
 def load_user_info(school_code: str, username: str) -> Dict[str, Any]:
     path = get_user_info_path(school_code, username)
     if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with _FILE_LOCK:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
     return {}
 
 
@@ -43,15 +47,17 @@ def save_user_info(school_code: str, username: str, info: Dict[str, Any]):
     user_dir = get_user_dir(school_code, username)
     os.makedirs(user_dir, exist_ok=True)
     path = get_user_info_path(school_code, username)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(info, f, ensure_ascii=False, indent=4)
+    with _FILE_LOCK:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(info, f, ensure_ascii=False, indent=4)
 
 
 def load_cache(school_code: str, username: str) -> Dict[str, Any]:
     path = get_cache_path(school_code, username)
     if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with _FILE_LOCK:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
     return {}
 
 
@@ -59,8 +65,9 @@ def save_cache(school_code: str, username: str, data: Dict[str, Any]):
     user_dir = get_user_dir(school_code, username)
     os.makedirs(user_dir, exist_ok=True)
     path = get_cache_path(school_code, username)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    with _FILE_LOCK:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
 
 
 def is_cache_fresh(school_code: str, username: str) -> bool:
@@ -79,26 +86,27 @@ def is_cache_fresh(school_code: str, username: str) -> bool:
 class SchoolDispatcher:
     @staticmethod
     def load_school_module(school_code: str):
-        if school_code in _SCHOOL_MODULE_CACHE:
-            return _SCHOOL_MODULE_CACHE[school_code]
-        
-        module_path = os.path.join('schools', school_code, 'main.py')
-        if not os.path.exists(module_path):
-            raise ValueError(f"学校代码 {school_code} 不存在")
-        
-        spec = importlib.util.spec_from_file_location(f"school_{school_code}", module_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        
-        _SCHOOL_MODULE_CACHE[school_code] = module
-        return module
+        with _MODULE_LOCK:
+            if school_code in _SCHOOL_MODULE_CACHE:
+                return _SCHOOL_MODULE_CACHE[school_code]
+            
+            module_path = os.path.join('schools', school_code, 'main.py')
+            if not os.path.exists(module_path):
+                raise ValueError(f"学校代码 {school_code} 不存在")
+            
+            spec = importlib.util.spec_from_file_location(f"school_{school_code}", module_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            _SCHOOL_MODULE_CACHE[school_code] = module
+            return module
     
     @staticmethod
     def get_timetable(school_code: str, username: str, password: str, 
-                      school_year: str = None, term: str = None, base_url: str = None, all_semesters: bool = False, **kwargs) -> Dict[str, Any]:
+                      school_year: str = None, term: str = None, all_semesters: bool = False, **kwargs) -> Dict[str, Any]:
         module = SchoolDispatcher.load_school_module(school_code)
         
-        result_json = module.Main(username, password, base_url, school_year, term, all_semesters)
+        result_json = module.Main(username, password, school_year, term, all_semesters)
         
         if isinstance(result_json, str):
             return json.loads(result_json)
@@ -196,7 +204,6 @@ class ICSBuilder:
         self.timetable = timetable_config or self._load_default_timetable(school_code)
         
         self._events: List[Dict[str, Any]] = []
-        self._header_written = False
     
     def _load_default_timetable(self, school_code: str = None) -> Dict[str, str]:
         global _TIMETABLE_DATA_CACHE
@@ -275,11 +282,6 @@ class ICSBuilder:
             }
             self._events.append(event)
     
-    def add_courses(self, courses: List[Dict[str, Any]], school_year: str = None, term: str = None,
-                    first_monday: str = None):
-        for course in courses:
-            self.add_course(course, school_year, term, first_monday)
-    
     def add_courses_from_dict(self, courses_data: Dict[str, Any]):
         courses = courses_data.get('courses', [])
         
@@ -296,18 +298,19 @@ class ICSBuilder:
                 self.add_course(course, school_year, term, first_monday)
     
     def add_error_event(self, reason: str, last_fetch_time: str):
-        # 错误提示事件：把课程表过期的日历事件添加为全天日历
-        last_fetch_dt = datetime.strptime(last_fetch_time, "%Y-%m-%dT%H:%M:%S.%f").astimezone()
-        # 错误事件从"最后拉取时间 + STALE_DAYS"开始显示
+        last_fetch_dt = datetime.fromisoformat(last_fetch_time)
+        if last_fetch_dt.tzinfo is None:
+            last_fetch_dt = last_fetch_dt.astimezone()
         start_datetime = (last_fetch_dt + timedelta(days=STALE_DAYS)).date()
-        last_fetch_time = last_fetch_dt.strftime("%Y-%m-%d %H:%M:%S")
+        end_datetime = start_datetime + timedelta(days=1)
+        last_fetch_display = last_fetch_dt.strftime("%Y-%m-%d %H:%M:%S")
 
         event = {
             'title': f'⚠️课表过期且无法更新⚠️-{reason}',
-            'description': f"上次成功从教务系统获取时间：{last_fetch_time}\\n\\n\\n当你看到这个那么代表课表已经超过{STALE_DAYS}天未更新，而且尝试更新时遇到了【{reason}】问题，导致无法更新。\\n如需帮助请访问blog.hishutdown.cn/?p=201",
+            'description': f"上次成功从教务系统获取时间：{last_fetch_display}\n\n\n当你看到这个那么代表课表已经超过{STALE_DAYS}天未更新，而且尝试更新时遇到了【{reason}】问题，导致无法更新。\n如需帮助请访问blog.hishutdown.cn/?p=201",
             'is_all_day': True,
             'start_datetime': datetime.combine(start_datetime, datetime.min.time()),
-            'end_datetime': datetime.combine(start_datetime, datetime.min.time()),
+            'end_datetime': datetime.combine(end_datetime, datetime.min.time()),
         }
         self._events.append(event)
     
@@ -328,6 +331,13 @@ class ICSBuilder:
         
         alarm.append("END:VALARM")
         return alarm
+    
+    def _escape_ics_text(self, text: str) -> str:
+        text = text.replace('\\', '\\\\')
+        text = text.replace(';', '\\;')
+        text = text.replace(',', '\\,')
+        text = text.replace('\n', '\\n')
+        return text
     
     def export(self) -> str:
         ics_lines = []
@@ -352,7 +362,7 @@ class ICSBuilder:
             "END:VTIMEZONE"
         ])
         
-        dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         
         for event in self._events:
             start_datetime = event['start_datetime']
@@ -363,14 +373,14 @@ class ICSBuilder:
             event_uid = f"{event.get('title', 'event')}_{start_datetime.strftime('%Y%m%d')}@courses"
             
             ics_lines.append("BEGIN:VEVENT")
-            ics_lines.append(f"SUMMARY:{event['title']}")
+            ics_lines.append(f"SUMMARY:{self._escape_ics_text(event['title'])}")
             if is_all_day:
-                ics_lines.append(f"DESCRIPTION:{event.get('description', '')}")
+                ics_lines.append(f"DESCRIPTION:{self._escape_ics_text(event.get('description', ''))}")
                 ics_lines.append(f"DTSTART;VALUE=DATE:{start_datetime.strftime('%Y%m%d')}")
                 ics_lines.append(f"DTEND;VALUE=DATE:{end_datetime.strftime('%Y%m%d')}")
             else:
-                ics_lines.append(f"DESCRIPTION:教师: {event.get('teacher', '')}\\n教学周: {event.get('teaching_weeks', '')}\\n节次: {event.get('class_periods', '')}")
-                ics_lines.append(f"LOCATION:{event.get('location', '')}")
+                ics_lines.append(f"DESCRIPTION:教师: {self._escape_ics_text(event.get('teacher', ''))}\\n教学周: {self._escape_ics_text(event.get('teaching_weeks', ''))}\\n节次: {self._escape_ics_text(event.get('class_periods', ''))}")
+                ics_lines.append(f"LOCATION:{self._escape_ics_text(event.get('location', ''))}")
                 ics_lines.append(f"DTSTART;TZID=Asia/Shanghai:{start_datetime.strftime('%Y%m%dT%H%M%S')}")
                 ics_lines.append(f"DTEND;TZID=Asia/Shanghai:{end_datetime.strftime('%Y%m%dT%H%M%S')}")
             
@@ -392,23 +402,23 @@ def Main(username: str, onceMd5Password: str, remindTime: str,
     
     now = datetime.now().isoformat()
     school_calendar_path = os.path.join('schools', school_code, 'school_calendar.json')
-    is_new_user = not is_user_exists(school_code, username)
+    user_exists = is_user_exists(school_code, username)
     
-    if force:
-        is_new_user = True
-    
-    if is_new_user:
-        # 新用户：直接尝试获取课表，失败则抛出异常
+    if not user_exists or force:
         try:
             school_data = SchoolDispatcher.get_timetable(
                 school_code, username, onceMd5Password,
                 school_year=school_year, term=term, all_semesters=all_semesters, **kwargs
             )
         except Exception as e:
-            # 新用户获取失败，直接抛出异常，不创建任何缓存
+            if force:
+                if user_exists:
+                    info = load_user_info(school_code, username)
+                    info["last_access_time"] = now
+                    save_user_info(school_code, username, info)
+                raise e
             raise e
         
-        # 获取成功，保存缓存和用户信息
         save_cache(school_code, username, school_data)
         
         info = {
@@ -417,33 +427,27 @@ def Main(username: str, onceMd5Password: str, remindTime: str,
         }
         save_user_info(school_code, username, info)
     else:
-        # 老用户：先更新访问时间，但不更新拉取时间
         info = load_user_info(school_code, username)
         
         if is_cache_fresh(school_code, username):
-            # 缓存有效，直接使用缓存
             school_data = load_cache(school_code, username)
             info["last_access_time"] = now
             save_user_info(school_code, username, info)
         else:
-            # 缓存过期，尝试从服务器获取
             try:
                 school_data = SchoolDispatcher.get_timetable(
                     school_code, username, onceMd5Password,
                     school_year=school_year, term=term, all_semesters=all_semesters, **kwargs
                 )
                 
-                # 获取成功，更新缓存和拉取时间
                 save_cache(school_code, username, school_data)
                 info["last_access_time"] = now
                 info["last_fetch_time"] = now
                 save_user_info(school_code, username, info)
                 
             except Exception as e:
-                # 获取失败
                 last_fetch = info.get("last_fetch_time", "")
                 
-                # 检查是否有过期课程表可用（超过7天未成功更新）
                 if last_fetch:
                     try:
                         last_fetch_dt = datetime.fromisoformat(last_fetch)
@@ -453,11 +457,9 @@ def Main(username: str, onceMd5Password: str, remindTime: str,
                 else:
                     days_since = 0
                 
-                # 如果超过7天未更新，尝试使用缓存并添加错误日程
                 if days_since >= STALE_DAYS:
                     school_data = load_cache(school_code, username)
                     if school_data and school_data.get('courses'):
-                        # 有缓存，加载缓存并添加错误事件
                         timetable_config = school_data.get('timetable', {})
                         ics_builder = ICSBuilder(
                             remind_time=remindTime,
@@ -468,13 +470,11 @@ def Main(username: str, onceMd5Password: str, remindTime: str,
                         ics_builder.add_courses_from_dict(school_data)
                         ics_builder.add_error_event(str(e), last_fetch)
                         
-                        # 只更新访问时间，不更新拉取时间
                         info["last_access_time"] = now
                         save_user_info(school_code, username, info)
                         
                         return ics_builder.export()
                 
-                # 未超过7天或没有缓存，抛出异常
                 raise e
     
     timetable_config = school_data.get('timetable', {})
@@ -497,16 +497,19 @@ if __name__ == "__main__":
         onceMd5Password = sys.argv[2]
         remindTime = sys.argv[3]
         school_code = sys.argv[4]
-        school_year = sys.argv[5] if len(sys.argv) > 5 else None
-        term = sys.argv[6] if len(sys.argv) > 6 else None
+        force = sys.argv[5].lower() == "true" if len(sys.argv) > 5 else False
+        school_year = sys.argv[6] if len(sys.argv) > 6 else None
+        term = sys.argv[7] if len(sys.argv) > 7 else None
+
         
-        o = Main(username, onceMd5Password, remindTime, school_code, school_year, term)
-        choice = input("save or print? (s/p)(default: p): ").strip().lower()
+        o = Main(username=username, onceMd5Password=onceMd5Password, remindTime=remindTime,
+                 school_code=school_code, school_year=school_year, term=term, force=force)
+        choice = input("save or print? (s/P): ").strip().lower()
         if choice == "s":
             open("test.ics", "w", encoding="utf-8").write(o)
             print("File saved as test.ics")
         else:
             print (o)
     else:
-        print("用法: python xqe.py <username> <onceMd5Password> <remindTime> <school_code> [school_year] [term]")
+        print("用法: python xqe.py <username> <onceMd5Password> <remindTime> <school_code> [FORCE] [school_year] [term]")
     

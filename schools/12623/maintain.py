@@ -13,7 +13,7 @@ class SchoolCalendarSync:
     def __init__(self, config_path="config.json"):
         """初始化：创建会话，加载配置文件，设置日志。"""
         # ========设置日志========
-        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.basicConfig(level=logging.DEBUG if os.environ.get("DEBUG") else logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         # ========获取配置========
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         # 如果传入的是相对路径，则相对于脚本目录构建完整路径
