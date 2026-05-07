@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# !!!!!!!!!IMPORTANT!!!!!!!!!
+# You need to set the environment variables `api_host`, `web_port` and `root_path` before running this script.
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 WEB_PORT="${web_port:-8080}"
 API_HOST="${api_host:-127.0.0.1}"
 

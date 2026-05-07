@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="XiQueEr2ICS",
     description="从喜鹊儿获取课表的工具",
-    root_path="/xqe2ics/subscribe/v2"
+    root_path=os.environ.get("root_path", "")
 )
 
 
@@ -39,7 +39,8 @@ async def get_ics_file(
     school_year: str = Query(None, description="学年"),
     term: str = Query(None, description="学期"),
     all_semesters: bool = Query(True, description="是否获取所有可用学期的课表"),
-    force: bool = Query(False, description="强制重新获取，忽略缓存，获取失败时返回错误而不是带错误事件的日历")
+    force: bool = Query(False, description="强制重新获取，忽略缓存，获取失败时返回错误而不是带错误事件的日历"),
+    site: str = Query("", description="用于适配v1的参数，请勿使用") # v1 Adapter, do not use in v2. private parameter for @shutdown_awa
 ):
     pwd = pwd.lower()
 
@@ -51,6 +52,10 @@ async def get_ics_file(
         logger.warning(f"Invalid password format: {pwd}")
         raise HTTPException(status_code=400, detail="密码不符合32位小写MD5格式")
     
+    # v1 adapter, do not use in v2. private parameter for @shutdown_awa
+    if site or not school_code:  # site非空 或 school_code为空（None或空字符串）
+        school_code = "12623"
+
     logger.info(f"Request: {student_id}, school={school_code}, all_sem={all_semesters}")
     
     try:

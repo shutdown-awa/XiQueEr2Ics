@@ -1,0 +1,12 @@
+services:
+  XiQueEr2Ics:
+    image: ghcr.nju.edu.cn/shutdown_awa/XiQueEr2Ics:latest
+    container_name: XiQueEr2Ics
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./user:/app/user
+    environment:
+      - api_host=127.0.0.1
+      - web_port=8080
