@@ -1,12 +1,19 @@
 services:
   XiQueEr2Ics:
-    image: ghcr.nju.edu.cn/shutdown_awa/XiQueEr2Ics:latest
+    image: ghcr.nju.edu.cn/shutdown-awa/xiqueer2ics:latest
     container_name: XiQueEr2Ics
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8015:8015"
     volumes:
-      - ./user:/app/user
+      - /service/xqe2ics-v2/user:/app/user
     environment:
-      - api_host=127.0.0.1
-      - web_port=8080
+      - api_host=0.0.0.0
+      - web_port=8015
+      - root_path=/xqe2ics/subscribe/v2
+    networks:
+      - xqe-network
+
+networks:
+  xqe-network:
+    driver: bridge
