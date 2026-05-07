@@ -54,23 +54,21 @@
 
 ### Docker Compose（推荐）
 
-1. 克隆本项目并进入目录。
-
-2. 创建 `user` 目录（用于持久化用户缓存数据）：
+1. 创建 `user` 目录（用于持久化用户缓存数据）：
 
    ```bash
    mkdir -p user
    ```
 
-3. 根据需要修改 `docker-compose.yml` 中的环境变量（详见下方 [环境变量配置](#环境变量配置)）。
+2. 根据需要修改 `docker-compose.yml` 中的环境变量（详见下方 [环境变量配置](#环境变量配置)）。
 
-4. 启动服务：
+3. 启动服务：
 
    ```bash
    docker compose up -d
    ```
 
-5. 服务默认运行在 `http://localhost:8080`。如需自定义端口或路径，请参考环境变量说明。
+4. 服务默认运行在 `http://localhost:8080`。如需自定义端口或路径，请参考环境变量说明。
 
 > ⚠️ `user` 目录需要挂载到容器内 `/app/user`，否则容器重启后用户缓存将丢失。
 
@@ -93,7 +91,7 @@
    pip install -r requirements.txt
    ```
 
-4. 通过 `run-web.sh` 启动服务：
+4. 通过 `run-web.sh` 启动服务（推荐）：
 
    ```bash
    ./run-web.sh
