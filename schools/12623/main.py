@@ -231,6 +231,7 @@ class XqeClient:
         response = self._request('POST', f"{self.base_url}/cas/logon.action", data=params, headers=headers)
         result = response.json()
         if result.get("status") != "200":
+            logger.warning(f"用户 {username} 登录失败：{result.get('message', '未知错误')}")
             raise Exception(f"登录失败: {result.get('message', '未知错误')}")
         
         logger.info(f"用户 {username} 登录成功")

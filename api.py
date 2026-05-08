@@ -86,13 +86,13 @@ async def get_ics_file(
             return response
         else:
             logger.error(f"Invalid ICS content for {student_id}")
-            raise HTTPException(status_code=500, detail="获取ICS文件失败")
+            raise HTTPException(status_code=500, detail="未能解析ICS生成的文件-ICS内容无效")
     
     except HTTPException:
         raise
-    except Exception:
-        logger.error(f"Internal error processing request for {student_id}")
-        raise HTTPException(status_code=500, detail="服务器内部错误")
+    except Exception as e:
+        logger.error(f"Error processing request for {student_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/")
