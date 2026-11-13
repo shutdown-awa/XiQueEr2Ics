@@ -133,13 +133,13 @@ class SchoolCalendar:
 
 
 # ============ 登录与课表获取 ============
-_thread_local = threading.local()
 
 
 class XqeClient:
     """喜鹊儿登录与课表操作客户端
-    
-    线程安全：每个线程拥有独立的 requests.Session
+
+    会话策略：每个实例（即每次抓取/每个 API 请求）持有独立的 requests.Session，
+    用完由调用方 close() 释放，不跨请求复用。
     """
     
     DEFAULT_TIMEOUT = 5
@@ -148,12 +148,15 @@ class XqeClient:
         self.base_url = base_url.rstrip('/')
         self.timeout = timeout or self.DEFAULT_TIMEOUT
         self.kingo_des = KingoDES()
-    
+        self._session = requests.Session()
+
     @property
     def session(self) -> requests.Session:
-        if not hasattr(_thread_local, 'session'):
-            _thread_local.session = requests.Session()
-        return _thread_local.session
+        return self._session
+
+    def close(self):
+        """关闭底层 HTTP 连接池（每个请求结束时应调用一次）"""
+        self._session.close()
     
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         timeout = kwargs.pop('timeout', self.timeout)
@@ -350,9 +353,24 @@ def main(
     
     logger.info(f"获取课表: 用户={username}, 全部学期={all_semesters}")
     
-    # 登录教务系统
+    # 登录教务系统（每个请求独立会话，用完即关）
     client = XqeClient(base_url)
-    session = client.login(username, once_md5_password)
+    try:
+        return _fetch_all(client, username, once_md5_password, school_year, term, all_semesters)
+    finally:
+        client.close()
+
+
+def _fetch_all(
+    client: XqeClient,
+    username: str,
+    once_md5_password: str,
+    school_year: Optional[str],
+    term: Optional[str],
+    all_semesters: bool
+) -> str:
+    """使用给定 client 完成登录与课表抓取，返回 JSON 字符串"""
+    client.login(username, once_md5_password)
     
     available_semesters = get_available_semesters()[:8]
     timetable_config = load_timetable_config()
